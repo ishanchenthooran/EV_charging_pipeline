@@ -71,13 +71,88 @@ def generate_synthetic_data(csv_path: str, n_sessions: int = 1000, n_stations: i
       )   
 
 
-def clean_and_preprocess(df):
-    """Placeholder for cleaning and preprocessing the dataset."""
-    pass
+def process_data(csv_path: str) -> pd.DataFrame:
+    """Load and clean the raw charging sessions CSV into a DataFrame.
 
-def create_database(db_path):
-    """Placeholder for creating a SQLite database with star schema tables."""
-    pass
+
+    The function parses timestamps, computes session durations (in hours),
+    extracts a date key for joining with a time dimension and returns the
+    cleaned DataFrame.
+
+
+    Parameters
+    ----------
+    csv_path : str
+        Path to the CSV file containing raw charging session data.
+
+
+    Returns
+    -------
+    pd.DataFrame
+        The cleaned DataFrame.
+    """
+    df = pd.read_csv(csv_path, parse_dates=["start_time", "end_time"])
+    # Compute session duration in hours
+    df["duration_hours"] = (df["end_time"] - df["start_time"]).dt.total_seconds() / 3600.0
+    # Extract date key for dim_time (YYYYMMDD integer)
+    df["date_key"] = df["start_time"].dt.strftime("%Y%m%d").astype(int)
+    return df
+
+def create_database(db_path: str) -> sqlite3.Connection:
+    """Create the SQLite database and return the connection.
+
+
+    Parameters
+    ----------
+    db_path : str
+        Path to the SQLite database file.
+
+
+    Returns
+    -------
+    sqlite3.Connection
+        An open connection to the newly created database.
+    """
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    # Create dimension tables
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dim_station (
+            station_id INTEGER PRIMARY KEY,
+            station_name TEXT,
+            location TEXT
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dim_time (
+            time_id INTEGER PRIMARY KEY,
+            date TEXT,
+            day_of_week TEXT,
+            month INTEGER,
+            year INTEGER
+        )
+        """
+    )
+    # Create fact table
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS fact_charging (
+            session_id INTEGER PRIMARY KEY,
+            station_id INTEGER,
+            time_id INTEGER,
+            energy_kwh REAL,
+            duration_hours REAL,
+            success INTEGER,
+            FOREIGN KEY (station_id) REFERENCES dim_station(station_id),
+            FOREIGN KEY (time_id) REFERENCES dim_time(time_id)
+        )
+        """
+    )
+    conn.commit()
+    return conn
 
 def populate_dimensions(conn, df):
     """Placeholder for inserting dimension data."""
