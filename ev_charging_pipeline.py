@@ -70,7 +70,6 @@ def generate_synthetic_data(csv_path: str, n_sessions: int = 1000, n_stations: i
                 ]
       )   
 
-
 def process_data(csv_path: str) -> pd.DataFrame:
     """Load and clean the raw charging sessions CSV into a DataFrame.
 
@@ -154,31 +153,175 @@ def create_database(db_path: str) -> sqlite3.Connection:
     conn.commit()
     return conn
 
-def populate_dimensions(conn, df):
-    """Placeholder for inserting dimension data."""
-    pass
+def populate_dimensions(conn: sqlite3.Connection, df: pd.DataFrame) -> None:
+    """Populate the dimension tables with unique values from the DataFrame.
 
-def populate_fact(conn, df):
-    """Placeholder for inserting fact table data."""
-    pass
 
-def compute_reliability(conn):
-    """Placeholder for calculating per-station success rates."""
-    pass
+    Parameters
+    ----------
+    conn : sqlite3.Connection
+        An open SQLite connection.
+    df : pd.DataFrame
+        The cleaned charging sessions DataFrame.
+    """
+    cursor = conn.cursor()
+    # Populate dim_station
+    stations = df["station_id"].unique()
+    for station_id in stations:
+        # Cast numpy types to built‑in Python int to avoid sqlite datatype mismatch
+        sid = int(station_id)
+        cursor.execute(
+            "INSERT OR IGNORE INTO dim_station (station_id, station_name, location) VALUES (?, ?, ?)",
+            (sid, f"Station {sid}", f"Location {sid}"),
+        )
+    # Populate dim_time
+    dates = df[["date_key", "start_time"]].drop_duplicates().sort_values("date_key")
+    for date_key, start_time in dates.itertuples(index=False):
+        date = start_time.date()
+        # Cast date_key to Python int in case it's numpy.int64
+        tk = int(date_key)
+        cursor.execute(
+            "INSERT OR IGNORE INTO dim_time (time_id, date, day_of_week, month, year) VALUES (?, ?, ?, ?, ?)",
+            (
+                tk,
+                date.isoformat(),
+                date.strftime("%A"),
+                date.month,
+                date.year,
+            ),
+        )
+    conn.commit()
 
-def plot_reliability(df):
-    """Placeholder for plotting reliability metrics."""
-    pass
+def populate_fact(conn: sqlite3.Connection, df: pd.DataFrame) -> None:
+    """Populate the fact table with charging session data.
 
-def main():
-    """Orchestrates the ETL pipeline."""
-    # 1. Load or generate data
-    # 2. Clean and preprocess
-    # 3. Create database
-    # 4. Populate tables
-    # 5. Compute KPIs
-    # 6. Plot results
-    pass
+
+    Parameters
+    ----------
+    conn : sqlite3.Connection
+        An open SQLite connection.
+    df : pd.DataFrame
+        The cleaned charging sessions DataFrame.
+    """
+    cursor = conn.cursor()
+    for row in df.itertuples(index=False):
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO fact_charging (
+                session_id, station_id, time_id, energy_kwh, duration_hours, success
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(row.session_id),
+                int(row.station_id),
+                int(row.date_key),
+                float(row.energy_kwh),
+                float(row.duration_hours),
+                int(row.success),
+            ),
+        )
+    conn.commit()
+
+def compute_kpis(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Compute KPIs per station: success rate, avg energy, avg duration."""
+    query = """
+        SELECT
+            station_id,
+            COUNT(*) AS total_sessions,
+            SUM(success) * 1.0 / COUNT(*) AS success_rate,
+            AVG(energy_kwh) AS avg_energy_kwh,
+            AVG(duration_hours) AS avg_duration_hours
+        FROM fact_charging
+        GROUP BY station_id
+        ORDER BY station_id
+    """
+    df = pd.read_sql_query(query, conn)
+    return df
+
+def plot_reliability(df: pd.DataFrame, output_path: str) -> None:
+    """Plot station reliability as a bar chart.
+
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with columns station_id and success_rate.
+    output_path : str
+        Path to save the PNG chart.
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("matplotlib not installed; skipping plot generation.")
+        return
+    plt.figure(figsize=(8, 4))
+    plt.bar(df["station_id"].astype(str), df["success_rate"])
+    plt.xlabel("Station ID")
+    plt.ylabel("Success Rate")
+    plt.title("EV Charging Station Reliability")
+    plt.ylim(0, 1)
+    for i, rate in enumerate(df["success_rate"]):
+        plt.text(i, rate + 0.02, f"{rate:.2f}", ha="center")
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
+
+def compute_time_series(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Compute daily average energy and duration across all stations."""
+    query = """
+        SELECT
+            t.date,
+            AVG(f.energy_kwh) AS avg_energy,
+            AVG(f.duration_hours) AS avg_duration
+        FROM fact_charging f
+        JOIN dim_time t ON f.time_id = t.time_id
+        GROUP BY t.date
+        ORDER BY t.date
+    """
+    df = pd.read_sql_query(query, conn)
+    df["date"] = pd.to_datetime(df["date"])
+    return df
+
+
+def main() -> None:
+    # Paths relative to this script
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    csv_path = os.path.join(base_dir, "charging_sessions.csv")
+    db_path = os.path.join(base_dir, "ev_charging.db")
+    plot_path = os.path.join(base_dir, "station_reliability.png")
+
+
+    if not os.path.exists(csv_path):
+        print(f"Generating synthetic data at {csv_path}...")
+        generate_synthetic_data(csv_path)
+        print(f"Synthetic data generated with 1 000 sessions.")
+    else:
+        print(f"Using existing data at {csv_path}.")
+
+
+    # Load and process data
+    df = process_data(csv_path)
+    print(f"Loaded {len(df)} sessions.")
+
+
+    # Create database and populate tables
+    # Remove existing database to avoid schema mismatches from prior runs
+    if os.path.exists(db_path):
+        os.remove(db_path)
+    conn = create_database(db_path)
+    populate_dimensions(conn, df)
+    populate_fact(conn, df)
+
+
+    # Compute kpi's
+    kpi_df = compute_kpis(conn)
+    print("Station reliability:")
+    print(kpi_df)
+    # Plot reliability
+    plot_reliability(kpi_df, plot_path)
+    if os.path.exists(plot_path):
+        print(f"Plot saved to {plot_path}.")
+    conn.close()
 
 if __name__ == "__main__":
     main()
