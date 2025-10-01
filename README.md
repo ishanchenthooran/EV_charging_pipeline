@@ -1,4 +1,4 @@
-# EV Charging Reliability Mini-Pipeline
+# EV Charging Mini-Pipeline
 
 <img width="1362" height="1326" alt="image" src="https://github.com/user-attachments/assets/cb165a24-0b85-45fa-af84-8927378523d6" />
 This project demonstrates a small data pipeline for analyzing EV charging session reliability. It is written in Python and uses `pandas`, `sqlite3`, and `matplotlib`. The pipeline generates synthetic charging data, processes and cleans it, stores it in a SQLite database with a star-schema design, and produces a simple reliability report.
