@@ -1,7 +1,7 @@
 # EV Charging Mini-Pipeline
 
 <img width="1362" height="1326" alt="image" src="https://github.com/user-attachments/assets/cb165a24-0b85-45fa-af84-8927378523d6" />
-This project demonstrates a small data pipeline for analyzing EV charging session reliability. It is written in Python and uses `pandas`, `sqlite3`, and `matplotlib`. The pipeline generates synthetic charging data, processes and cleans it, stores it in a SQLite database with a star-schema design, and produces a simple reliability report.
+This project demonstrates a lightweight data pipeline for analyzing EV charging session reliability. Built in Python, it uses pandas, sqlite3, and matplotlib. The pipeline generates synthetic charging data, processes and cleans it, stores it in a SQLite database with a star schema, and produces a simple reliability report.
 
 ## Features
 - **ETL pipeline** – reads raw session data from CSV, transforms variables, calculates metrics, and loads results into a relational database.  
@@ -33,3 +33,6 @@ This project demonstrates a small data pipeline for analyzing EV charging sessio
 
 Run pipeline: 
 python ev_charging_pipeline.py
+
+Run dashboard:
+streamlit run dashboard.py
